@@ -1,0 +1,284 @@
+---
+title: "Exploratory Data Analysis with Correspondance Analysis"
+author: "Victoria Bolotova"
+date: "19 02 2023"
+output: 
+    html_document:
+      theme: cosmo
+      code_folding: show
+      toc: true
+      toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+# Research Questions
+
+In this small research project, I am going to explore the association between two categorical variables: education level of people in Finland and types of organization where they work. I suppose that there should be a significant relationship since education determines job chances of people. 
+
+For example, I can assume that people with tertiary education work in Central or local government, since job positions in such places of work are very responsible and important, and requires some specific managerial and analytical skills. 
+
+I decided to consider the case of Finland since this country is characterised by a well-established and well-working democracy, where the principles of *meritocracy* work. 
+
+Thus, my RQs are the following:
+
+* Is there an significant association between education level of people in Finland and types of organization where they work? 
+
+* Where do people with primary, secondary and tertiary education tend to work? 
+
+# Data Preprocessing 
+
+```{r}
+library(dplyr)
+library(foreign)
+library(haven)
+library(ggplot2)
+all_df <- read_sav("ESS.sav")
+all_df <- all_df %>% haven::as_factor()
+
+df <- all_df %>%
+  select(eisced, tporgwk)
+
+df <- na.omit(df)
+```
+
+
+## Variables
+
+### Type of organization 
+
+```{r}
+levels(df$tporgwk)
+```
+
+We do not need category "Other", "Not applicable" etc. in the variable about type of organization where a person works/worked.
+
+```{r}
+df <- df %>% filter(tporgwk %in% c("Central or local government", 
+                                   "Other public sector (such as education and health)", 
+                                   "A state owned enterprise", 
+                                   "A private firm", 
+                                   "Self employed"))
+```
+
+Also, we need to rename one categy for proper visualization in the future step.
+
+```{r}
+df$tporgwk <- as.character(df$tporgwk)
+df$tporgwk[df$tporgwk == "Other public sector (such as education and health)"] <- "Public sector (Edu&Health)"
+df$tporgwk <- as.factor(df$tporgwk)
+```
+
+#### Graph 
+
+```{r fig.width=10, fig.height=5}
+work_barplot  <- df %>% 
+  group_by(tporgwk) %>% 
+ dplyr::summarize(count = n()) %>%  
+ mutate(percentage = count/sum(count)) 
+
+ggplot(work_barplot, aes(x = reorder(tporgwk, - percentage), y = percentage, fill = tporgwk)) + 
+  geom_bar(stat='identity') + 
+  geom_text(aes(label=scales::percent(percentage)), position = position_stack(vjust = .5)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x="", 
+       y="",
+       title="Type of organization where respondents work") +
+  scale_fill_manual("Level of education", values = c('#a9d6e5', '#89c2d9', '#61a5c2', '#2c7da0', '#01497c')) + 
+  theme_classic() + 
+  theme(legend.position="none")
+```
+
+* More than a half of respondents in Finland (52%) work in private firms.
+* 23% of respondents work in the public sector, specifically in the field Education or Health
+* 11% of respondents are self-employed
+* 8% of respondents work in a state owned enterprise
+* Finally, 5% of respondents work in the central or local goverment
+
+### Type of education
+
+```{r}
+levels(df$eisced)
+```
+
+As for education, we also do not need categories like "Other", "Refusal", "Don't know", "No answer"
+
+```{r}
+df <- df %>% filter(eisced %in% c("ES-ISCED I , less than lower secondary", 
+                                  "ES-ISCED II, lower secondary", 
+                                  "ES-ISCED IIIa, upper tier upper secondary",
+                                  "ES-ISCED IIIb, lower tier upper secondary",
+                                  "ES-ISCED IV, advanced vocational, sub-degree",
+                                  "ES-ISCED V1, lower tertiary education, BA level",
+                                  "ES-ISCED V2, higher tertiary education, >= MA level"))
+                    
+df <- droplevels(df)
+```
+
+Moreover, we need to merge categories of education into fewer ones: 
+
+```{r}
+df$eisced <- as.character(df$eisced)
+
+df$eisced[df$eisced == "ES-ISCED I , less than lower secondary" | 
+              df$eisced == "ES-ISCED II, lower secondary"] <- "Primary"
+
+df$eisced[df$eisced == "ES-ISCED IIIa, upper tier upper secondary" | 
+              df$eisced == "ES-ISCED IIIb, lower tier upper secondary" |
+            df$eisced == "ES-ISCED IV, advanced vocational, sub-degree"] <- "Secondary"
+
+
+df$eisced[df$eisced == "ES-ISCED V1, lower tertiary education, BA level" | 
+              df$eisced == "ES-ISCED V2, higher tertiary education, >= MA level"] <- "Tertiary"
+
+df$eisced <- as.factor(df$eisced)
+```
+
+#### Graph 
+
+```{r}
+education_barplot  <- df %>% 
+  group_by(eisced) %>% 
+ dplyr::summarize(count = n()) %>%  
+ mutate(percentage = count/sum(count)) 
+
+ggplot(education_barplot, aes(x = eisced, y = percentage, fill = eisced)) + 
+  geom_bar(stat='identity') + 
+  geom_text(aes(label=scales::percent(percentage)), position = position_stack(vjust = .5)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x="", 
+       y="",
+       title="Respondents' level of education") +
+  scale_fill_manual("Level of education", values = c('#f94144', '#f8961e', '#90be6d')) + 
+  theme_classic() + 
+  theme(legend.position="none")
+```
+
+* 17% of respondents have primary education
+* 51% of respondents have secondary education
+* And, finally, 32% have tertiary education
+
+
+## Relationship between education and type of organization 
+
+```{r fig.width=10, fig.height= 6}
+library(sjPlot)
+library(ggplot2)
+
+set_theme(
+  base = theme_classic(),
+  axis.title.size = .9,
+  axis.textsize = .9,
+  legend.size = .7,
+  legend.title.size = .8,
+  geom.label.size = 3
+)
+
+
+plot_xtab(df$eisced, df$tporgwk, bar.pos = "stack", 
+         title = "The proportions of two variables ", show.total = FALSE, margin = "row", coord.flip = TRUE, show.n = F, geom.colors = "Blues")
+```
+
+* This plot shows us that in our data there are some interesting associations between education levels and types of organizations since they are not proportional to each other. For example, among people with tertiary education 33% work in the public sector (Education & Health), meanwhile among people with secondary and primary education only 18% and 16% work there respectively. 
+
+* Let's explore with chi-squared test!
+
+
+# Chi-squared test
+
+```{r}
+chisq.test(df$eisced, df$tporgwk)
+```
+* P-value is significant, thus, we reject the null hypothesis and conclude that there is a statistically significant association between education level and type of organization. 
+
+Let's explore how much distribution is different from expected one with standardized residuals. 
+
+```{r}
+chisq.test(df$eisced, df$tporgwk)$stdres
+```
+## Residual plot
+
+```{r}
+library(corrplot)
+corrplot(chisq.test(df$eisced, df$tporgwk)$stdres, is.corr=FALSE)
+```
+
+
+
+* **Primary education**: higher association than expected with State owned enterprise (standardized residual = 2) and with Self-employment (standardized residual = 2.5); and lower association than expected with Public sector (Education or Health) (standardized residual = -2.9) and with Central or Local Government (standardized residual = -1.2). 
+
+* **Secondary education**: higher association than expected with Private Firm (standardized residual = 2.6) and with a State owned enterprise (standardized residual = 1.5); and much lower association than expected with public sector (Education & Health) (standardized residual = -4.3). 
+
+* **Tertiary education**: much higher association than expected with Public Sector (Education & Health) (standardized residual = 6.9) and a little bit higher association than expected with Central or Local Government (standardized residual = 1.5). The associations between tertiary education and other types of organizations are lower than expected (standardized residuals < -2.6). 
+
+
+# Correspondance Analysis
+
+```{r}
+df_matrix <- as.data.frame.matrix(table(as.factor(df$tporgwk),as.factor(df$eisced)))
+df_matrix
+```
+
+
+```{r}
+library(FactoMineR)
+my.ca <- CA(df_matrix, graph = F)
+```
+
+## Eigenvalues / Inertia
+
+Our data contains 5 rows and 3 columns.
+
+If the data were random, the expected value of the eigenvalue for each axis would be 1/(nrow(types of organization)-1) = 1/4 = 25% in terms of rows.
+
+Likewise, the average axis should account for 1/(ncol(types of organization)-1) = 1/2 = 50% in terms of the 3 columns.”
+
+```{r}
+library(factoextra)
+my.ca$eig
+fviz_screeplot(my.ca) +
+ geom_hline(yintercept = 50, linetype = 2, color = "red")
+```
+
+## Map
+
+```{r fig.width=12, fig.height= 8}
+fviz_ca_biplot(my.ca, repel = TRUE)
+```
+
+
+* The further labels are from the origin, the more discriminating they are. Thus, *self-employed* is highly differentiated. Similarly, *state owned enterprise* is a highly discriminating type of organization. Both of them are associated with *primary education*. This finding corresponds to correlation plot which we saw above. 
+According to it, for primary education there are two organizations with positive residual: self-employed (2.5) and state owned enterprise (2). Proximity between self-employment and state owned enterprise indicates that they are more similar to each other than to other types of organization. 
+
+* *Tertiary education* and *Public sector(Education & Health)* are also far away from origin and probably are associated since located in the same space. This finding also corresponds to correlation plot, which shows big positive residual (6.9) for pairing *Tertiary education* and *Public sector(Education & Health)*. Besides, *Public sector(Education & Health)* is relatively close to *Central or Local government*, which also match findings from the residual plot: *Public sector(Education & Health)* and *Central or Local government* both have positive residuals with pairing *Tertiary education* and both have negative residuals with Primary and Secondary education. 
+
+* *A private firm* and *secondary education* are the closest to the origin, but it is still pretty far away from it. We can assume that these two categories are probably less distinctive in the data. It seems that secondary education is probably associated with working in a private firm. The correlation plot of standardized residuals above also shows a stronger relationship between secondary education and working in the private firm than expected (2.6), thus, we can can conclude that they indeed are associated. A private firm is close to central or local government, but it does not imply that they are similar, they just both are less distinctive that is why are located closer to the origin. A private firm is relatively more similar to a state owned enterprise and even to self-employed, which also match findings from the residual plot.
+
+
+
+## Map with arrows 
+
+```{r}
+fviz_ca_biplot(my.ca, repel = TRUE,
+              map = "rowprincipal",
+              arrow = c(TRUE, TRUE))
+```
+
+However, to understand relationship between row labels and column labels it is wrong to look at the distance between them. Instead, we should imagine a line connecting the row and column labels with the origin. The sharper the angle, the stronger the relationship. The map above simplify thus procedure for us. 
+
+Thus, the following findings emerge:
+
+* Tertiary education is very strongly associated with Public Sector (education & health) as the angle is very acute and also is associated with Central or Local government but to a lower extent because the angle is less acute. 
+
+* Secondary education is strongly associated with a Private Firm in accordance with the  pretty acute angle. Also, secondary education is associated with State owned enterprise, but to a lower extent. Moreover, State owned enterprise seems to be a little bit stronger associated with Primary education than with Secondary one.
+
+* Primary education is strongly associated with self-employed and and also is associated with State owned enterprise but to a lower extent because the angle is less acute. 
+
+
+That's it!
+
+
+
